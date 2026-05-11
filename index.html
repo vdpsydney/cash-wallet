@@ -273,6 +273,28 @@
     gap: 8px;
   }
 
+  .log-item-wrap {
+    position: relative;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    animation: fadeUp 0.3s ease both;
+  }
+
+  .log-item-delete-bg {
+    position: absolute;
+    inset: 0;
+    background: var(--red-dim);
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding-right: 20px;
+    color: var(--red);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    gap: 6px;
+  }
+
   .log-item {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -281,7 +303,14 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    animation: fadeUp 0.3s ease both;
+    position: relative;
+    touch-action: pan-y;
+    transition: transform 0.2s ease;
+    will-change: transform;
+  }
+
+  .log-item.swiping {
+    transition: none;
   }
 
   .log-dot {
@@ -747,15 +776,22 @@
       const dateStr = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) +
         ' ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
       return `
-        <div class="log-item">
-          <div class="log-dot ${tx.type}"></div>
-          <div class="log-info">
-            <div class="log-type">${tx.type === 'in' ? 'Cash In' : 'Cash Out'}</div>
-            <div class="log-date">${dateStr}</div>
-            ${tx.note ? `<div class="log-note">${escHtml(tx.note)}</div>` : ''}
+        <div class="log-item-wrap" id="wrap-${tx.origIndex}">
+          <div class="log-item-delete-bg">DELETE ✕</div>
+          <div class="log-item" id="item-${tx.origIndex}"
+            data-index="${tx.origIndex}"
+            ontouchstart="swipeStart(event, ${tx.origIndex})"
+            ontouchmove="swipeMove(event, ${tx.origIndex})"
+            ontouchend="swipeEnd(event, ${tx.origIndex})">
+            <div class="log-dot ${tx.type}"></div>
+            <div class="log-info">
+              <div class="log-type">${tx.type === 'in' ? 'Cash In' : 'Cash Out'}</div>
+              <div class="log-date">${dateStr}</div>
+              ${tx.note ? `<div class="log-note">${escHtml(tx.note)}</div>` : ''}
+            </div>
+            <div class="log-amount ${tx.type}">${tx.type === 'in' ? '+' : '-'}€${fmt(tx.amount)}</div>
+            <button class="log-delete-btn" onclick="openDeleteSheet(${tx.origIndex})" title="Delete">✕</button>
           </div>
-          <div class="log-amount ${tx.type}">${tx.type === 'in' ? '+' : '-'}€${fmt(tx.amount)}</div>
-          <button class="log-delete-btn" onclick="openDeleteSheet(${tx.origIndex})" title="Delete">✕</button>
         </div>`;
     }).join('');
   }
@@ -816,6 +852,47 @@
     el.textContent = msg;
     el.className = 'flash ' + type + ' show';
     setTimeout(() => el.classList.remove('show'), 2800);
+  }
+
+  // Swipe to delete
+  const swipeState = {};
+  const SWIPE_THRESHOLD = 80;
+
+  function swipeStart(e, index) {
+    const touch = e.touches[0];
+    swipeState[index] = { startX: touch.clientX, startY: touch.clientY, dx: 0, active: true };
+  }
+
+  function swipeMove(e, index) {
+    const s = swipeState[index];
+    if (!s || !s.active) return;
+    const touch = e.touches[0];
+    const dx = touch.clientX - s.startX;
+    const dy = touch.clientY - s.startY;
+    if (Math.abs(dy) > Math.abs(dx) && Math.abs(s.dx) < 5) { s.active = false; return; }
+    if (dx > 0) return;
+    s.dx = dx;
+    const el = document.getElementById('item-' + index);
+    if (el) {
+      el.classList.add('swiping');
+      el.style.transform = 'translateX(' + Math.max(dx, -120) + 'px)';
+    }
+  }
+
+  function swipeEnd(e, index) {
+    const s = swipeState[index];
+    if (!s) return;
+    const el = document.getElementById('item-' + index);
+    if (el) {
+      el.classList.remove('swiping');
+      if (Math.abs(s.dx) > SWIPE_THRESHOLD) {
+        el.style.transform = 'translateX(-120px)';
+        setTimeout(() => openDeleteSheet(index), 150);
+      } else {
+        el.style.transform = '';
+      }
+    }
+    delete swipeState[index];
   }
 
   let pendingDeleteIndex = null;
