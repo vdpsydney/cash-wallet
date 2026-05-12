@@ -376,6 +376,21 @@
 
   .log-delete-btn:active { color: var(--red); background: var(--red-dim); }
 
+  .log-edit-btn {
+    background: none;
+    border: none;
+    color: var(--text-faint);
+    cursor: pointer;
+    padding: 6px 8px;
+    border-radius: 6px;
+    flex-shrink: 0;
+    font-size: 15px;
+    line-height: 1;
+    transition: color 0.15s, background 0.15s;
+  }
+
+  .log-edit-btn:active { color: var(--gold); background: var(--gold-dim); }
+
   .delete-sheet {
     position: fixed;
     inset: 0;
@@ -736,6 +751,40 @@
   </div>
 </div>
 
+<!-- Edit transaction sheet -->
+<div class="delete-sheet" id="editSheet" onclick="handleEditOverlayClick(event)">
+  <div class="delete-sheet-inner">
+    <div class="modal-handle"></div>
+    <div class="modal-title" style="color:var(--gold); margin-bottom:28px;">Edit transaction</div>
+
+    <div class="input-group">
+      <label class="input-label">Type</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <button id="editTypeIn" onclick="setEditType('in')" style="padding:12px;border-radius:var(--radius-sm);border:1px solid rgba(184,245,160,0.2);background:var(--green-dim);color:var(--green);font-family:'Outfit',sans-serif;font-size:14px;font-weight:700;cursor:pointer">+ Cash In</button>
+        <button id="editTypeOut" onclick="setEditType('out')" style="padding:12px;border-radius:var(--radius-sm);border:1px solid rgba(245,160,160,0.2);background:var(--red-dim);color:var(--red);font-family:'Outfit',sans-serif;font-size:14px;font-weight:700;cursor:pointer">- Cash Out</button>
+      </div>
+    </div>
+
+    <div class="input-group">
+      <label class="input-label">Amount</label>
+      <div class="input-wrap">
+        <span class="input-prefix">€</span>
+        <input type="number" id="editAmountInput" placeholder="0.00" min="0" step="0.01" inputmode="decimal">
+      </div>
+    </div>
+
+    <div class="input-group">
+      <label class="input-label">Note (optional)</label>
+      <div class="input-wrap">
+        <input type="text" id="editNoteInput" placeholder="e.g. ATM withdrawal, lunch…">
+      </div>
+    </div>
+
+    <button class="btn-delete-confirm" style="background:var(--gold-dim);color:var(--gold);border-color:rgba(245,216,122,0.2);margin-bottom:4px" onclick="confirmEdit()">Save changes</button>
+    <button class="btn-cancel" onclick="closeEditSheet()">Cancel</button>
+  </div>
+</div>
+
 <!-- Flash message -->
 <div class="flash" id="flash"></div>
 
@@ -864,6 +913,7 @@
               ${tx.note ? `<div class="log-note">${escHtml(tx.note)}</div>` : ''}
             </div>
             <div class="log-amount ${tx.type}">${tx.type === 'in' ? '+' : '-'}€${fmt(tx.amount)}</div>
+            <button class="log-edit-btn" onclick="openEditSheet(${tx.origIndex})" title="Edit">✎</button>
             <button class="log-delete-btn" onclick="openDeleteSheet(${tx.origIndex})" title="Delete">✕</button>
           </div>
         </div>`;
@@ -1008,6 +1058,57 @@
     closeDeleteSheet();
     render();
     showFlash('🗑 Transaction deleted', 'out');
+  }
+
+  // ── EDIT TRANSACTION ──
+  let pendingEditIndex = null;
+  let editType = 'in';
+
+  function setEditType(type) {
+    editType = type;
+    document.getElementById('editTypeIn').style.opacity = type === 'in' ? '1' : '0.4';
+    document.getElementById('editTypeOut').style.opacity = type === 'out' ? '1' : '0.4';
+  }
+
+  function openEditSheet(index) {
+    pendingEditIndex = index;
+    const tx = data.transactions[index];
+    editType = tx.type;
+    document.getElementById('editAmountInput').value = tx.amount;
+    document.getElementById('editNoteInput').value = tx.note || '';
+    setEditType(tx.type);
+    document.getElementById('editSheet').classList.add('open');
+    setTimeout(() => document.getElementById('editAmountInput').focus(), 350);
+  }
+
+  function closeEditSheet() {
+    document.getElementById('editSheet').classList.remove('open');
+    pendingEditIndex = null;
+  }
+
+  function handleEditOverlayClick(e) {
+    if (e.target === document.getElementById('editSheet')) closeEditSheet();
+  }
+
+  async function confirmEdit() {
+    if (pendingEditIndex === null) return;
+    const raw = document.getElementById('editAmountInput').value;
+    const amount = parseFloat(raw);
+    if (!raw || isNaN(amount) || amount <= 0) {
+      document.getElementById('editAmountInput').style.borderColor = 'var(--red)';
+      setTimeout(() => document.getElementById('editAmountInput').style.borderColor = '', 1000);
+      return;
+    }
+    const note = document.getElementById('editNoteInput').value.trim();
+    const tx = data.transactions[pendingEditIndex];
+    const { error } = await supa.from('transactions').update({ type: editType, amount, note }).eq('id', tx.id);
+    if (error) { showFlash('Error saving', 'out'); return; }
+    tx.type = editType;
+    tx.amount = amount;
+    tx.note = note;
+    closeEditSheet();
+    render();
+    showFlash('✅ Transaction updated', 'in');
   }
 
   function exportCSV() {
