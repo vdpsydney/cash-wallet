@@ -6,6 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Cash Wallet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"></script>
 <title>Cash Wallet</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -618,10 +619,31 @@
 </head>
 <body>
 
-<div class="app">
+<!-- ══ LOGIN ══ -->
+<div id="viewLogin" style="display:none;min-height:100vh;flex-direction:column;align-items:center;justify-content:center;padding:40px 24px;max-width:430px;margin:0 auto">
+  <div style="font-size:28px;font-weight:800;letter-spacing:-0.02em;margin-bottom:6px;font-family:'Outfit',sans-serif;color:var(--text)">Cash Wallet</div>
+  <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:0.1em;margin-bottom:48px">YOUR CASH TRACKER</div>
+  <div style="width:100%">
+    <div style="margin-bottom:16px">
+      <div style="font-family:'DM Mono',monospace;font-size:11px;letter-spacing:0.1em;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px">Email</div>
+      <input type="text" id="loginEmail" placeholder="your@email.com" autocomplete="email" style="width:100%;background:var(--surface);border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:'Outfit',sans-serif;font-size:16px;padding:14px 16px;outline:none;-webkit-appearance:none;box-sizing:border-box">
+    </div>
+    <div style="margin-bottom:16px">
+      <div style="font-family:'DM Mono',monospace;font-size:11px;letter-spacing:0.1em;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px">Password</div>
+      <input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password" style="width:100%;background:var(--surface);border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:'Outfit',sans-serif;font-size:16px;padding:14px 16px;outline:none;-webkit-appearance:none;box-sizing:border-box">
+    </div>
+    <div id="loginError" style="color:#f5a0a0;font-size:13px;font-family:'DM Mono',monospace;margin-bottom:12px;display:none"></div>
+    <button id="loginBtn" onclick="doLogin()" style="width:100%;border:none;border-radius:16px;padding:18px;font-family:'Outfit',sans-serif;font-size:16px;font-weight:700;cursor:pointer;background:#f5d87a;color:#1a1200;margin-top:8px">Sign in</button>
+  </div>
+</div>
+
+<div class="app" id="viewApp" style="display:none">
   <div class="header">
     <div class="header-label">My Wallet</div>
-    <div class="header-title">Cash Tracker</div>
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <div class="header-title">Cash Tracker</div>
+      <button onclick="doLogout()" title="Sign out" style="width:34px;height:34px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);color:var(--text-muted);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.15s;flex-shrink:0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v9"/><path d="M6.4 5.4a9 9 0 1 0 11.2 0"/></svg></button>
+    </div>
   </div>
 
   <div class="balance-card">
@@ -718,21 +740,73 @@
 <div class="flash" id="flash"></div>
 
 <script>
-  const STORAGE_KEY = 'cashwallet_v1';
+  // ── SUPABASE ──
+  const SUPA_URL = 'https://nhodhuaugqoyxiyopxhn.supabase.co';
+  const SUPA_KEY = 'sb_publishable_tb7aTzOD4vAbmwnIBqH_tQ_NnrI7uBA';
+  const supa = supabase.createClient(SUPA_URL, SUPA_KEY);
+
   let currentType = 'in';
   let data = { transactions: [] };
 
-  function load() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) data = JSON.parse(raw);
-    } catch(e) {}
+  // ── AUTH ──
+  async function doLogin() {
+    const email = document.getElementById('loginEmail').value.trim();
+    const password = document.getElementById('loginPassword').value;
+    const btn = document.getElementById('loginBtn');
+    const err = document.getElementById('loginError');
+    err.style.display = 'none';
+    btn.textContent = 'Signing in…';
+    btn.disabled = true;
+    const { data: authData, error } = await supa.auth.signInWithPassword({ email, password });
+    btn.textContent = 'Sign in';
+    btn.disabled = false;
+    if (error) {
+      err.textContent = error.message;
+      err.style.display = 'block';
+    }
+  }
+
+  async function doLogout() {
+    await supa.auth.signOut();
+    document.getElementById('viewApp').style.display = 'none';
+    document.getElementById('viewLogin').style.display = 'flex';
+    data = { transactions: [] };
+  }
+
+  // ── DATA ──
+  async function load() {
+    const { data: { user } } = await supa.auth.getUser();
+    if (!user) return;
+    const { data: rows, error } = await supa
+      .from('transactions')
+      .select('*')
+      .order('date', { ascending: true });
+    if (error) { showFlash('⚠️ Error loading data', 'out'); return; }
+    data.transactions = (rows || []).map(r => ({
+      id: r.id,
+      type: r.type,
+      amount: parseFloat(r.amount),
+      note: r.note || '',
+      date: r.date
+    }));
     render();
   }
 
-  function save() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  async function save(tx) {
+    const { data: { user } } = await supa.auth.getUser();
+    if (!user) return;
+    const { error } = await supa.from('transactions').insert({
+      id: tx.id,
+      user_id: user.id,
+      type: tx.type,
+      amount: tx.amount,
+      note: tx.note,
+      date: tx.date
+    });
+    if (error) { showFlash('⚠️ Error saving', 'out'); }
   }
+
+  function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
 
   function getBalance() {
     return data.transactions.reduce((acc, tx) => {
@@ -822,7 +896,7 @@
     if (e.target === document.getElementById('modalOverlay')) closeModal();
   }
 
-  function confirm() {
+  async function confirm() {
     const raw = document.getElementById('amountInput').value;
     const amount = parseFloat(raw);
     if (!raw || isNaN(amount) || amount <= 0) {
@@ -837,8 +911,9 @@
     }
 
     const note = document.getElementById('noteInput').value.trim();
-    data.transactions.push({ type: currentType, amount, note, date: new Date().toISOString() });
-    save();
+    const tx = { id: uid(), type: currentType, amount, note, date: new Date().toISOString() };
+    data.transactions.push(tx);
+    await save(tx);
     closeModal();
     render();
 
@@ -924,10 +999,12 @@
     if (e.target === document.getElementById('deleteSheet')) closeDeleteSheet();
   }
 
-  function confirmDelete() {
+  async function confirmDelete() {
     if (pendingDeleteIndex === null) return;
+    const tx = data.transactions[pendingDeleteIndex];
+    const { error } = await supa.from('transactions').delete().eq('id', tx.id);
+    if (error) { showFlash('⚠️ Error deleting', 'out'); return; }
     data.transactions.splice(pendingDeleteIndex, 1);
-    save();
     closeDeleteSheet();
     render();
     showFlash('🗑 Transaction deleted', 'out');
@@ -956,8 +1033,33 @@
     if (e.key === 'Escape') closeModal();
   });
 
-  load();
+  // ── INIT ──
+  document.addEventListener('DOMContentLoaded', async () => {
+    const { data: { session } } = await supa.auth.getSession();
+    if (session) {
+      document.getElementById('viewLogin').style.display = 'none';
+      document.getElementById('viewApp').style.display = 'flex';
+      await load();
+    } else {
+      document.getElementById('viewLogin').style.display = 'flex';
+    }
+
+    supa.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN') {
+        document.getElementById('viewLogin').style.display = 'none';
+        document.getElementById('viewApp').style.display = 'flex';
+        await load();
+      } else if (event === 'SIGNED_OUT') {
+        document.getElementById('viewApp').style.display = 'none';
+        document.getElementById('viewLogin').style.display = 'flex';
+        data = { transactions: [] };
+      }
+    });
+
+    document.getElementById('loginPassword').addEventListener('keydown', e => {
+      if (e.key === 'Enter') doLogin();
+    });
+  });
 </script>
 </body>
 </html>
-
